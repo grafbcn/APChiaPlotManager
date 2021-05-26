@@ -1,0 +1,2 @@
+# APChiaPlotManager
+This program allows you to copy files from specified folders on some disks to others, thereby optimizing the queue and copying speed, as well as the possibility of parallel copying to different disks. Thus, while one raft is being copied to one disk, another raft can be copied to another disk.  Controlling the copy queue and speed also allows you to avoid penalties for the speed of response of dplots to requests for more than 5 seconds.
