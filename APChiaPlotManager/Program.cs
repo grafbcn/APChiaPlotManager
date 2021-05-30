@@ -21,14 +21,14 @@ namespace APChiaPlotManager
                 Console.WriteLine("----------------------------------------------------------------------------------------");
                 Console.WriteLine($"{Now()} Start AP Chia Plot Manager ({_version}) by grafbcn");
                 Console.WriteLine("----------------------------------------------------------------------------------------");
-                bool goExit = GetArgs(args, out List<string> originPaths, out string destinationPath, out int method, out int bufferSize);
-                if (goExit)
+                bool goExit = GetArgs(args, out List<string> originPaths, out string destinationPath, out int method, out int bufferSize, out int timeoutMsec);
+                if (goExit || args.Contains("/H") || args.Contains("-H") || args.Contains("/h") || args.Contains("-h"))
                 {
                     ShowInfo();
                 }
                 else
                 {
-                    StartThreadManager(originPaths, destinationPath, method, bufferSize);
+                    StartThreadManager(originPaths, destinationPath, method, bufferSize, timeoutMsec);
                 }
                 Console.WriteLine($"{Now()} End!");
             }
@@ -40,7 +40,7 @@ namespace APChiaPlotManager
             Console.ReadLine();
         }
 
-        private static void StartThreadManager(List<string> originFolders, string destinationFolder, int method, int bufferSize)
+        private static void StartThreadManager(List<string> originFolders, string destinationFolder, int method, int bufferSize, int timeoutMsec)
         {
             bool goExit = false;
             Console.WriteLine($"\n{Now()} Start thread CPM ({_version})\n\tSources: {string.Join(';', originFolders)}\n\tDestination: {destinationFolder}");
@@ -88,7 +88,7 @@ namespace APChiaPlotManager
                                 // Detect type of move
                                 if (fileName.EndsWith(".plot"))
                                 {
-                                    ProcessNormalMove(fi, originFolder, destinationFolder, method, bufferSize);
+                                    ProcessNormalMove(fi, originFolder, destinationFolder, method, bufferSize, timeoutMsec);
                                 }
                                 else if (fileName.EndsWith(_suffixM3))
                                 {
@@ -96,7 +96,7 @@ namespace APChiaPlotManager
                                     string destinationFullName = Path.Combine(destinationFolder, fi.Name);
                                     if (File.Exists(destinationFullName))
                                     {
-                                        ProcessContinueMoveM3(fileName, originFolder, destinationFullName, destinationFolder, bufferSize);
+                                        ProcessContinueMoveM3(fileName, originFolder, destinationFullName, destinationFolder, bufferSize, timeoutMsec);
                                     }
                                 }
                                 else
@@ -111,7 +111,8 @@ namespace APChiaPlotManager
             }
         }
 
-        private static void ProcessContinueMoveM3(string tempFullName, string originFolder, string fullTempDestPath, string destinationFolder, int bufferSize)
+        private static void ProcessContinueMoveM3(string tempFullName, string originFolder, string fullTempDestPath, string destinationFolder,
+            int bufferSize, int timeoutMsec)
         {
             // Detected
             FileInfo tempFileInfo = new(tempFullName);
@@ -131,7 +132,7 @@ namespace APChiaPlotManager
             Console.WriteLine($"{Now()} Continue moving to folder '{destinationFolder}'");
             Stopwatch sw = new();
             sw.Start();
-            MoveByMethod3(tempFullName, fullTempDestPath, originalSize, bufferSize, sizeDestinationFile: destinationSize);
+            MoveByMethod3(tempFullName, fullTempDestPath, originalSize, bufferSize, timeoutMsec, sizeDestinationFile: destinationSize);
             sw.Stop();
             // Rename to original name
             Console.WriteLine($"{Now()} Rename plot. Remove suffix '{_suffixM3}'");
@@ -142,7 +143,7 @@ namespace APChiaPlotManager
         }
 
         private static void ProcessNormalMove(FileInfo fi, string originFolder, string destinationFolder,
-            int method, int bufferSize)
+            int method, int bufferSize, int timeoutMsec)
         {
             // Detected
             var size = fi.Length;
@@ -170,7 +171,7 @@ namespace APChiaPlotManager
             switch (method)
             {
                 case 3:
-                    MoveByMethod3(tempFullName, fullTempDestPath, size, bufferSize);
+                    MoveByMethod3(tempFullName, fullTempDestPath, size, bufferSize, timeoutMsec);
                     break;
                 case 2:
                     MoveByMethod2(tempFileInfo, fullTempDestPath);
@@ -200,7 +201,7 @@ namespace APChiaPlotManager
         }
 
         private static void MoveByMethod3(string tempFullName, string fullTempDestPath, long originSize, int bufferSize,
-            long sizeDestinationFile = 0)
+            int timeoutMsec, long sizeDestinationFile = 0)
         {
             if (bufferSize <= 0)
             {
@@ -232,6 +233,10 @@ namespace APChiaPlotManager
                         Console.Write($"\rProgress..{Math.Round(percent, 0):000}%"); // don't remove spaces
                         nextPart += part;
                     }
+                    if (timeoutMsec > 0)
+                    {
+                        Thread.Sleep(timeoutMsec);
+                    }
                 }
                 Console.WriteLine("");
             }
@@ -244,13 +249,14 @@ namespace APChiaPlotManager
         }
 
         private static bool GetArgs(string[] args, out List<string> originPaths, out string destinationPath,
-            out int method, out int bufferSize)
+            out int method, out int bufferSize, out int timeoutMsec)
         {
             bool goExit = false;
             method = 1;
             bufferSize = 4096;
             originPaths = new List<string>();
             destinationPath = null;
+            timeoutMsec = 0;
             int numArgs = args == null ? 0 : args.Length;
             if (args != null && numArgs % 2 == 0)
             {
@@ -317,6 +323,20 @@ namespace APChiaPlotManager
                                 }
                             }
                             break;
+                        case "/T":
+                            {
+                                if (int.TryParse(arg2, out int timeout))
+                                {
+                                    Console.WriteLine($"Timeout between copy buffer (only method 3 apply) is {timeout} msec. OK!");
+                                    timeoutMsec = timeout;
+                                }
+                                else
+                                {
+                                    Console.WriteLine($"Timeout is not int32 value '{arg2}'");
+                                    goExit = true;
+                                }
+                            }
+                            break;
                     }
                 }
             }
@@ -350,6 +370,10 @@ namespace APChiaPlotManager
             Console.WriteLine("\tExample: /M 1");
             Console.WriteLine("/B - Buffer size for method 3 of move files (Default 1024 bytes)");
             Console.WriteLine("\tExample: /B 1024");
+            Console.WriteLine("/H - Help/information");
+            Console.WriteLine("/T - Timeout (msec) for method 3 between write of bytes to destination file (this descrease speed of copy).");
+            Console.WriteLine("\tUse it, if you have errors when your move plot from -t to -d folder.");
+            Console.WriteLine("\tPrevent error like this: This should be below 5 seconds to minimize risk of losing rewards.");
             Console.WriteLine("CTRL+C - stop all and exit");
             Console.WriteLine("----------------------------------------------------------------------------------------\n");
         }
